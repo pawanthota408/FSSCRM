@@ -49,8 +49,47 @@ object RetrofitClient {
             .build()
     }
 
+    val gson = GsonBuilder()
+        .setLenient()
+        // --- Int / Integer ---
+        .registerTypeAdapter(Int::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) 0 
+            else try { json.asInt } catch (e: Exception) { 0 }
+        })
+        .registerTypeAdapter(java.lang.Integer::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) null 
+            else try { json.asInt } catch (e: Exception) { null }
+        })
+        // --- Double ---
+        .registerTypeAdapter(Double::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) 0.0
+            else try { json.asDouble } catch (e: Exception) { 0.0 }
+        })
+        .registerTypeAdapter(java.lang.Double::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) null
+            else try { json.asDouble } catch (e: Exception) { null }
+        })
+        // --- Long ---
+        .registerTypeAdapter(Long::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) 0L
+            else try { json.asLong } catch (e: Exception) { 0L }
+        })
+        .registerTypeAdapter(java.lang.Long::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) null
+            else try { json.asLong } catch (e: Exception) { null }
+        })
+        // --- Float ---
+        .registerTypeAdapter(Float::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) 0.0f
+            else try { json.asFloat } catch (e: Exception) { 0.0f }
+        })
+        .registerTypeAdapter(java.lang.Float::class.java, com.google.gson.JsonDeserializer { json, _, _ ->
+            if (json.isJsonPrimitive && json.asJsonPrimitive.isString && json.asString.isEmpty()) null
+            else try { json.asFloat } catch (e: Exception) { null }
+        })
+        .create()
+
     private val retrofit: Retrofit by lazy {
-        val gson = GsonBuilder().setLenient().create()
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
