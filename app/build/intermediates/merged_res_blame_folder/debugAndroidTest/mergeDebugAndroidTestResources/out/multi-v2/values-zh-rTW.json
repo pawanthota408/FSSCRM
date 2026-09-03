@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.fsscrm.test.app-mergeDebugAndroidTestResources-32:/values-zh-rTW/values-zh-rTW.xml",
+            "outputFile": "com.fsscrm.test.app-mergeDebugAndroidTestResources-29:/values-zh-rTW/values-zh-rTW.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.6.1\\transforms\\cc43568754b0a2f85852cb17cc928f79\\transformed\\ui\\res\\values-zh-rTW\\values-zh-rTW.xml",
+                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.7.0\\transforms\\b673e584fff97210083d14e13d0e846a\\transformed\\ui\\res\\values-zh-rTW\\values-zh-rTW.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
@@ -21,7 +21,7 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.6.1\\transforms\\91740d23f94138adf5aa8c8677769323\\transformed\\core-1.19.0\\res\\values-zh-rTW\\values-zh-rTW.xml",
+                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.7.0\\transforms\\889010beea845ba54a3e78aa3cb7dbdc\\transformed\\core-1.19.0\\res\\values-zh-rTW\\values-zh-rTW.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",

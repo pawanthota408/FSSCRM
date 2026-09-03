@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "886219106400",
+    "project_id": "fsscrm-fed77",
+    "storage_bucket": "fsscrm-fed77.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:886219106400:android:210e0ead7f7da4faa6fb05",
+        "android_client_info": {
+          "package_name": "com.fsscrm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsupsHV7cznf8rIpIWceylrhLfcyUZ_ag"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

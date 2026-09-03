@@ -1,27 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.fsscrm.test.app-mergeDebugAndroidTestResources-32:/values-pa/values-pa.xml",
+            "outputFile": "com.fsscrm.test.app-mergeDebugAndroidTestResources-29:/values-pa/values-pa.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.6.1\\transforms\\91740d23f94138adf5aa8c8677769323\\transformed\\core-1.19.0\\res\\values-pa\\values-pa.xml",
-                    "from": {
-                        "startLines": "2,3,4,5,6,7,8,9",
-                        "startColumns": "4,4,4,4,4,4,4,4",
-                        "startOffsets": "55,153,255,355,456,558,656,785",
-                        "endColumns": "97,101,99,100,101,97,128,100",
-                        "endOffsets": "148,250,350,451,553,651,780,881"
-                    },
-                    "to": {
-                        "startLines": "3,4,5,6,7,8,9,26",
-                        "startColumns": "4,4,4,4,4,4,4,4",
-                        "startOffsets": "201,299,401,501,602,704,802,2274",
-                        "endColumns": "97,101,99,100,101,97,128,100",
-                        "endOffsets": "294,396,496,597,699,797,926,2370"
-                    }
-                },
-                {
-                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.6.1\\transforms\\cc43568754b0a2f85852cb17cc928f79\\transformed\\ui\\res\\values-pa\\values-pa.xml",
+                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.7.0\\transforms\\b673e584fff97210083d14e13d0e846a\\transformed\\ui\\res\\values-pa\\values-pa.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
@@ -35,6 +18,23 @@
                         "startOffsets": "107,931,1024,1107,1199,1298,1386,1464,1562,1650,1734,1813,1894,1966,2049,2124,2199,2375,2455,2521",
                         "endColumns": "93,92,82,91,98,87,77,97,87,83,78,80,71,82,74,74,74,79,65,121",
                         "endOffsets": "196,1019,1102,1194,1293,1381,1459,1557,1645,1729,1808,1889,1961,2044,2119,2194,2269,2450,2516,2638"
+                    }
+                },
+                {
+                    "source": "C:\\Users\\pawan\\.gradle\\caches\\9.7.0\\transforms\\889010beea845ba54a3e78aa3cb7dbdc\\transformed\\core-1.19.0\\res\\values-pa\\values-pa.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,153,255,355,456,558,656,785",
+                        "endColumns": "97,101,99,100,101,97,128,100",
+                        "endOffsets": "148,250,350,451,553,651,780,881"
+                    },
+                    "to": {
+                        "startLines": "3,4,5,6,7,8,9,26",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "201,299,401,501,602,704,802,2274",
+                        "endColumns": "97,101,99,100,101,97,128,100",
+                        "endOffsets": "294,396,496,597,699,797,926,2370"
                     }
                 }
             ]
