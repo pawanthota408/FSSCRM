@@ -273,7 +273,7 @@ fun WorkCard(work: Work, onClick: () -> Unit, onUpdateStatus: () -> Unit, onAddP
     Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Surface(color = Color(0xFFFEF3C7), shape = RoundedCornerShape(4.dp)) { Text(text = work.status.uppercase(), modifier = Modifier.padding(6.dp, 2.dp), color = Color(0xFF92400E), fontSize = 9.sp, fontWeight = FontWeight.Black) } }
-            Spacer(modifier = Modifier.height(12.dp)); Text(work.work_name, fontWeight = FontWeight.Bold, fontSize = 17.sp); Text(work.customer_name ?: "Customer", fontSize = 13.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(12.dp)); Text(work.work_name.ifBlank { work.description?.take(30) ?: "Project #${work.id}" }, fontWeight = FontWeight.Bold, fontSize = 17.sp); Text(work.customer_name ?: work.lead_name ?: work.lead_company ?: "Customer / Lead", fontSize = 13.sp, color = Color.Gray)
             Spacer(modifier = Modifier.height(16.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onUpdateStatus, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Status", fontSize = 11.sp) }
                 OutlinedButton(onClick = onAddPayment, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Payment", fontSize = 11.sp) }

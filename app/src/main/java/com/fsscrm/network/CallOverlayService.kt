@@ -810,25 +810,49 @@ fun PostCallLayout(
                                 val SDF_TIME = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                                 val now = Date()
 
+                                val lId = (identificationData?.get("lead_id")?.takeIf { it != "0" } ?: lead?.id?.toString() ?: customer?.lead_id?.toString() ?: "0")
+                                val cId = (identificationData?.get("customer_id")?.takeIf { it != "0" } ?: customer?.id?.toString() ?: "0")
+                                val cName = (identificationData?.get("name")?.takeIf { it.isNotBlank() } ?: lead?.name ?: customer?.name ?: "Unknown")
+                                val cEmail = (identificationData?.get("email")?.takeIf { it.isNotBlank() } ?: lead?.email ?: customer?.email ?: "")
+
                                 val logParams = mutableMapOf(
                                     "employee_id" to userId.toString(),
                                     "mobile" to phoneNumber,
                                     "call_date" to SDF_DATE.format(now),
                                     "call_time" to SDF_TIME.format(now),
-                                    "name" to (identificationData?.get("name") ?: "Unknown"),
-                                    "email" to (identificationData?.get("email") ?: ""),
-                                    "lead_id" to (identificationData?.get("lead_id") ?: "0"),
-                                    "customer_id" to (identificationData?.get("customer_id") ?: "0"),
+                                    "name" to cName,
+                                    "email" to cEmail,
+                                    "lead_id" to lId,
+                                    "customer_id" to cId,
                                     "notes" to callReason
                                 )
 
                                 val logResp = RetrofitClient.apiService.logCallHistory(logParams)
+                                if (logResp.isSuccessful && logResp.body() != null) {
+                                    val element = logResp.body()!!
+                                    if (element.isJsonObject) {
+                                        val obj = element.asJsonObject
+                                        val newCallId = obj.get("id")?.asString ?: obj.get("call_id")?.asString
+                                        if (!newCallId.isNullOrBlank() && callReason.isNotBlank()) {
+                                            try {
+                                                RetrofitClient.apiService.updateCallNotes(
+                                                    mapOf(
+                                                        "call_id" to newCallId,
+                                                        "id" to newCallId,
+                                                        "notes" to callReason,
+                                                        "user_id" to userId.toString()
+                                                    )
+                                                )
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                }
 
                                 // 2. If lead exists, also add to CRM Follow-up timeline
-                                if (lead != null || customer != null) {
+                                if (lId != "0") {
                                     RetrofitClient.apiService.addFollowUp(
                                         mapOf(
-                                            "lead_id" to (lead?.id ?: customer?.lead_id ?: 0).toString(),
+                                            "lead_id" to lId,
                                             "user_id" to userId.toString(),
                                             "remarks" to "Call Note: $callReason",
                                             "status" to (lead?.status ?: "Follow Up"),

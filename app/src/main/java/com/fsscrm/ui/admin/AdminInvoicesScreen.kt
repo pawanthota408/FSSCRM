@@ -183,7 +183,7 @@ private fun parseInvoice(o: JsonObject): InvoiceItem {
         approvedAt = o.optStr("approved_at"),
         sentToCustomerAt = o.optStr("sent_to_customer_at"),
         adminNotes = o.optStr("admin_notes"),
-        itemsJson = o.optStr("items")
+        itemsJson = o.optStr("items") ?: o.optStr("proforma_items") ?: o.optStr("requirements") ?: o.get("items")?.toString()
     )
 }
 
@@ -265,14 +265,18 @@ fun AdminInvoicesScreen(
 
                 if (response.isSuccessful) {
                     response.toLenientJson()?.asJsonObject?.let { root ->
-                        if (root.get("success")?.asBoolean != true) {
-                            errorMessage = root.get("error")?.asString ?: "Failed to load"
+                        if (root.get("success")?.asBoolean != true && root.get("status")?.asString != "success") {
+                            errorMessage = root.get("error")?.asString ?: root.get("message")?.asString ?: "Failed to load"
                             return@let
                         }
 
-                        allItems = root.getAsJsonArray("invoices")
-                            ?.map { parseInvoice(it.asJsonObject) }
-                            ?: emptyList()
+                        val arr = if (root.has("invoices")) root.getAsJsonArray("invoices")
+                            else if (root.has("proformas")) root.getAsJsonArray("proformas")
+                            else if (root.has("proforma_invoices")) root.getAsJsonArray("proforma_invoices")
+                            else if (root.has("data")) root.getAsJsonArray("data")
+                            else null
+
+                        allItems = arr?.map { parseInvoice(it.asJsonObject) } ?: emptyList()
 
                         root.getAsJsonObject("stats")?.let { s ->
                             stats = InvoiceStats(
@@ -307,14 +311,20 @@ fun AdminInvoicesScreen(
     // Tab 0 → Approved Proformas (shown as Invoices)
     val invoices = remember(allItems) {
         allItems.filter {
-            it.status.equals("approved", ignoreCase = true)
+            it.status.equals("approved", ignoreCase = true) ||
+            it.status.equals("paid", ignoreCase = true) ||
+            it.status.equals("completed", ignoreCase = true)
         }
     }
 
     // Tab 1 → Pending Proformas
     val pendingProformas = remember(allItems) {
         allItems.filter {
-            it.status.equals("pending_approval", ignoreCase = true)
+            !it.status.equals("approved", ignoreCase = true) &&
+            !it.status.equals("paid", ignoreCase = true) &&
+            !it.status.equals("completed", ignoreCase = true) &&
+            !it.status.equals("rejected", ignoreCase = true) &&
+            !it.status.equals("cancelled", ignoreCase = true)
         }
     }
 

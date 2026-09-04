@@ -47,8 +47,11 @@ fun AdminWorksScreen(
                         val listType = object : TypeToken<List<Work>>() {}.type
                         val dataPart = if (json.isJsonObject && json.asJsonObject.has("data")) json.asJsonObject["data"]
                                       else if (json.isJsonObject && json.asJsonObject.has("works")) json.asJsonObject["works"]
+                                      else if (json.isJsonObject && json.asJsonObject.has("work_list")) json.asJsonObject["work_list"]
+                                      else if (json.isJsonObject && json.asJsonObject.has("active_works")) json.asJsonObject["active_works"]
+                                      else if (json.isJsonObject && json.asJsonObject.has("projects")) json.asJsonObject["projects"]
                                       else json
-                        works = Gson().fromJson(dataPart, listType)
+                        works = Gson().fromJson<List<Work>>(dataPart, listType) ?: emptyList()
                     }
                 }
             } catch (e: Exception) { } finally { isLoading = false }
@@ -59,8 +62,14 @@ fun AdminWorksScreen(
 
     val filtered = remember(works, selectedTab) {
         when (selectedTab) {
-            0 -> works.filter { it.status.lowercase() == "pending" || it.status.lowercase() == "in_progress" }
-            1 -> works.filter { it.status.lowercase() == "completed" }
+            0 -> works.filter { 
+                val st = it.status.lowercase().trim()
+                st != "completed" && st != "finished" && st != "done" && st != "cancelled"
+            }
+            1 -> works.filter { 
+                val st = it.status.lowercase().trim()
+                st == "completed" || st == "finished" || st == "done"
+            }
             else -> works
         }
     }
@@ -79,6 +88,10 @@ fun AdminWorksScreen(
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = PrimaryIndigo)
+                }
+            } else if (filtered.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No projects found", color = Color.Gray, fontSize = 14.sp)
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
@@ -103,11 +116,11 @@ fun AdminWorkCard(work: Work, onClick: (Int) -> Unit) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
-                    Text(work.work_name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(work.customer_name ?: "Unknown Customer", color = Color.Gray, fontSize = 13.sp)
+                    Text(work.work_name.ifBlank { work.description?.take(30) ?: "Project #${work.id}" }, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(work.customer_name ?: work.lead_name ?: work.lead_company ?: "Customer / Lead", color = Color.Gray, fontSize = 13.sp)
                 }
                 Surface(
-                    color = if(work.status == "completed") Color(0xFFDCFCE7) else Color(0xFFFEF9C3),
+                    color = if(work.status.lowercase() == "completed") Color(0xFFDCFCE7) else Color(0xFFFEF9C3),
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(

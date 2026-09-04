@@ -3,6 +3,7 @@ package com.fsscrm.network
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
+import com.google.gson.reflect.TypeToken
 
 data class Employee(
     val id: Int? = null,
@@ -230,11 +231,16 @@ data class Product(
     }
 }
 
+private fun parsePrice(value: String?): Double {
+    if (value == null) return 0.0
+    return value.replace(",", "").replace("₹", "").trim().toDoubleOrNull() ?: 0.0
+}
+
 data class QuoteRequirement(
     @SerializedName("description", alternate = ["requirement", "item", "product_name"]) val requirement: String = "",
-    @SerializedName("rate", alternate = ["cost", "unit_price", "price"]) val cost: String = "0.00",
+    @SerializedName("rate", alternate = ["cost", "unit_price", "price", "item_price", "item_rate", "item_cost"]) val cost: String = "0.00",
     @SerializedName("qty", alternate = ["quantity"]) val quantity: String = "1",
-    @SerializedName("amount", alternate = ["total"]) val amount: String = "0.00",
+    @SerializedName("amount", alternate = ["total", "total_price", "item_total", "total_amount"]) val amount: String = "0.00",
     @SerializedName("details", alternate = ["specifications", "remarks"]) val details: String = "",
     val product_id: Int? = null,
     val serial_number: String? = null,
@@ -243,22 +249,41 @@ data class QuoteRequirement(
     val expiry_date: String? = null
 ) {
     val quantityInt: Int get() = quantity.toDoubleOrNull()?.toInt() ?: 1
+
+    val effectivePrice: Double
+        get() {
+            val c = parsePrice(cost)
+            if (c > 0.0) return c
+            val a = parsePrice(amount)
+            if (a > 0.0) {
+                val q = quantityInt.coerceAtLeast(1)
+                return a / q
+            }
+            return 0.0
+        }
+
+    val effectiveAmount: Double
+        get() {
+            val a = parsePrice(amount)
+            if (a > 0.0) return a
+            return effectivePrice * quantityInt
+        }
 }
 
 data class Work(
     @SerializedName("id") val id: Int,
-    @SerializedName("lead_id") val lead_id: Int,
-    @SerializedName("customer_id") val customer_id: Int? = null,
-    @SerializedName("work_name") val work_name: String,
-    @SerializedName("description") val description: String? = null,
+    @SerializedName("lead_id", alternate = ["lead_id_raw"]) val lead_id: Int = 0,
+    @SerializedName("customer_id", alternate = ["customer_id_raw"]) val customer_id: Int? = null,
+    @SerializedName("work_name", alternate = ["name", "title", "project_name", "service", "work"]) val work_name: String = "",
+    @SerializedName("description", alternate = ["notes", "details", "remarks"]) val description: String? = null,
     @SerializedName("status") val status: String = "pending",
     @SerializedName("start_date") val start_date: String? = null,
     @SerializedName("expected_completion") val expected_completion: String? = null,
     @SerializedName("actual_completion") val actual_completion: String? = null,
     @SerializedName("handover_date") val handover_date: String? = null,
-    @SerializedName("total_amount") val total_amount: String = "0.00",
-    @SerializedName("advance_received") val advance_received: String = "0.00",
-    @SerializedName("balance_amount") val balance_amount: String = "0.00",
+    @SerializedName("total_amount", alternate = ["amount", "total", "deal_total"]) val total_amount: String = "0.00",
+    @SerializedName("advance_received", alternate = ["advance", "paid_amount"]) val advance_received: String = "0.00",
+    @SerializedName("balance_amount", alternate = ["balance", "due_amount"]) val balance_amount: String = "0.00",
     @SerializedName("amount_received") val amount_received: String = "0.00",
     @SerializedName("payment_type") val payment_type: String? = null,
     @SerializedName("payment_mode") val payment_mode: String? = null,
@@ -306,21 +331,29 @@ data class WorkDetailsResponse(
 
 data class WorkResponse(
     val status: String? = null,
-    val works: List<Work> = emptyList()
+    @SerializedName("works", alternate = ["data", "work_list", "active_works", "projects"]) val works: List<Work> = emptyList()
 ) {
     companion object {
         private val lenientGson = RetrofitClient.gson
         fun fromJson(json: JsonElement): WorkResponse {
             return try {
                 if (json.isJsonArray) {
-                    val list = lenientGson.fromJson<List<Work>>(json, object : com.google.gson.reflect.TypeToken<List<Work>>() {}.type)
+                    val list = lenientGson.fromJson<List<Work>>(json, object : TypeToken<List<Work>>() {}.type) ?: emptyList()
                     WorkResponse(status = "success", works = list)
                 } else if (json.isJsonObject) {
                     val obj = json.asJsonObject
-                    if (obj.has("works") || obj.has("data") || obj.has("status")) {
-                        lenientGson.fromJson(json, WorkResponse::class.java)
+                    val targetArray = if (obj.has("works") && obj.get("works").isJsonArray) obj.getAsJsonArray("works")
+                        else if (obj.has("data") && obj.get("data").isJsonArray) obj.getAsJsonArray("data")
+                        else if (obj.has("work_list") && obj.get("work_list").isJsonArray) obj.getAsJsonArray("work_list")
+                        else if (obj.has("active_works") && obj.get("active_works").isJsonArray) obj.getAsJsonArray("active_works")
+                        else if (obj.has("projects") && obj.get("projects").isJsonArray) obj.getAsJsonArray("projects")
+                        else null
+
+                    if (targetArray != null) {
+                        val list = lenientGson.fromJson<List<Work>>(targetArray, object : TypeToken<List<Work>>() {}.type) ?: emptyList()
+                        WorkResponse(status = obj.get("status")?.asString ?: "success", works = list)
                     } else {
-                        WorkResponse(status = "success", works = emptyList())
+                        lenientGson.fromJson(json, WorkResponse::class.java)
                     }
                 } else {
                     WorkResponse(status = "error", works = emptyList())
@@ -399,9 +432,9 @@ data class ActivityTimelineItem(
 
 data class ProformaInvoice(
     @SerializedName("id") val id: Int,
-    @SerializedName("proforma_no") val proforma_no: String,
-    @SerializedName("lead_id") val lead_id: Int,
-    @SerializedName("customer_name") val customer_name: String,
+    @SerializedName("proforma_no", alternate = ["proforma_number", "invoice_no", "reference_no", "number"]) val proforma_no: String = "",
+    @SerializedName("lead_id") val lead_id: Int = 0,
+    @SerializedName("customer_name", alternate = ["name", "client_name"]) val customer_name: String = "",
     @SerializedName("customer_email") val customer_email: String? = null,
     @SerializedName("customer_phone") val customer_phone: String? = null,
     @SerializedName("customer_company") val customer_company: String? = null,
@@ -410,10 +443,10 @@ data class ProformaInvoice(
     @SerializedName("tax") val tax: String? = "0.00",
     @SerializedName("discount") val discount: String? = "0.00",
     @SerializedName("total") val total: String? = "0.00",
-    @SerializedName("items") val items: String? = null,
+    @SerializedName("items", alternate = ["proforma_items", "requirements", "requirements_json", "line_items", "details"]) val items: String? = null,
     @SerializedName("status") val status: String? = "pending",
     @SerializedName("created_by") val created_by: Int? = null,
-    @SerializedName("created_at", alternate = ["createdAt"]) val created_at: String? = null,
+    @SerializedName("created_at", alternate = ["createdAt", "date", "proforma_date"]) val created_at: String? = null,
     @SerializedName("sent_at") val sent_at: String? = null,
     @SerializedName("quote_id") val quote_id: Int? = null,
     @SerializedName("approved_by") val approved_by: Int? = null,
@@ -431,7 +464,35 @@ data class ProformaInvoice(
         } catch (e: Exception) { emptyList() }
     }
     companion object {
-        fun fromJson(json: JsonElement): ProformaInvoice = RetrofitClient.gson.fromJson(json, ProformaInvoice::class.java)
+        fun fromJson(json: JsonElement): ProformaInvoice {
+            return try {
+                val element = if (json.isJsonArray && json.asJsonArray.size() > 0) json.asJsonArray[0] else json
+                if (element.isJsonObject) {
+                    val obj = element.asJsonObject
+                    val target = if (obj.has("data") && obj.get("data").isJsonObject) obj.get("data").asJsonObject
+                        else if (obj.has("proforma") && obj.get("proforma").isJsonObject) obj.get("proforma").asJsonObject
+                        else if (obj.has("proforma_invoice") && obj.get("proforma_invoice").isJsonObject) obj.get("proforma_invoice").asJsonObject
+                        else if (obj.has("details") && obj.get("details").isJsonObject) obj.get("details").asJsonObject
+                        else obj
+                    
+                    val p = RetrofitClient.gson.fromJson(target, ProformaInvoice::class.java)
+                    if (p.items.isNullOrBlank()) {
+                        val arr = if (target.has("items") && target.get("items").isJsonArray) target.getAsJsonArray("items")
+                            else if (target.has("proforma_items") && target.get("proforma_items").isJsonArray) target.getAsJsonArray("proforma_items")
+                            else if (target.has("requirements") && target.get("requirements").isJsonArray) target.getAsJsonArray("requirements")
+                            else null
+                        if (arr != null) {
+                            return p.copy(items = arr.toString())
+                        }
+                    }
+                    p
+                } else {
+                    RetrofitClient.gson.fromJson(json, ProformaInvoice::class.java)
+                }
+            } catch (e: Exception) {
+                RetrofitClient.gson.fromJson(json, ProformaInvoice::class.java)
+            }
+        }
     }
 }
 
@@ -634,8 +695,8 @@ data class ProductResponse(
 
 data class QuoteDetails(
     val id: Int,
-    val quote_no: String,
-    val customer_name: String,
+    @SerializedName("quote_no", alternate = ["quotation_no", "quote_number", "number", "reference_no"]) val quote_no: String = "",
+    @SerializedName("customer_name", alternate = ["name", "client_name"]) val customer_name: String = "",
     val customer_email: String? = null,
     val customer_phone: String? = null,
     val customer_company: String? = null,
@@ -654,10 +715,59 @@ data class QuoteDetails(
     val modified_at: String? = null,
     val admin_notes: String? = null,
     val discount: String? = "0.00",
-    val requirements: List<QuoteRequirement>? = null
+    @SerializedName("requirements", alternate = ["items", "quote_items", "details", "line_items", "products"]) val requirements: List<QuoteRequirement>? = null,
+    @SerializedName("items_json", alternate = ["items_str", "requirements_json", "requirements_str", "items_text"]) val rawItemsJson: String? = null
 ) {
+    val allRequirements: List<QuoteRequirement> get() {
+        if (!requirements.isNullOrEmpty()) return requirements
+        if (!rawItemsJson.isNullOrBlank()) {
+            try {
+                val list = RetrofitClient.gson.fromJson<List<QuoteRequirement>>(
+                    rawItemsJson,
+                    object : com.google.gson.reflect.TypeToken<List<QuoteRequirement>>() {}.type
+                )
+                if (!list.isNullOrEmpty()) return list
+            } catch (_: Exception) {}
+        }
+        return emptyList()
+    }
+
     companion object {
-        fun fromJson(json: JsonElement): QuoteDetails = RetrofitClient.gson.fromJson(json, QuoteDetails::class.java)
+        fun fromJson(json: JsonElement): QuoteDetails {
+            return try {
+                val element = if (json.isJsonArray && json.asJsonArray.size() > 0) json.asJsonArray[0] else json
+                if (element.isJsonObject) {
+                    val obj = element.asJsonObject
+                    val target = if (obj.has("data") && obj.get("data").isJsonObject) obj.get("data").asJsonObject
+                        else if (obj.has("quote") && obj.get("quote").isJsonObject) obj.get("quote").asJsonObject
+                        else if (obj.has("quotation") && obj.get("quotation").isJsonObject) obj.get("quotation").asJsonObject
+                        else if (obj.has("details") && obj.get("details").isJsonObject) obj.get("details").asJsonObject
+                        else obj
+                    
+                    val q = RetrofitClient.gson.fromJson(target, QuoteDetails::class.java)
+                    if (q.requirements == null) {
+                        val arr = if (target.has("requirements") && target.get("requirements").isJsonArray) target.getAsJsonArray("requirements")
+                            else if (target.has("items") && target.get("items").isJsonArray) target.getAsJsonArray("items")
+                            else if (target.has("quote_items") && target.get("quote_items").isJsonArray) target.getAsJsonArray("quote_items")
+                            else if (target.has("details") && target.get("details").isJsonArray) target.getAsJsonArray("details")
+                            else null
+                        
+                        if (arr != null) {
+                            val reqs = RetrofitClient.gson.fromJson<List<QuoteRequirement>>(
+                                arr,
+                                object : com.google.gson.reflect.TypeToken<List<QuoteRequirement>>() {}.type
+                            )
+                            return q.copy(requirements = reqs)
+                        }
+                    }
+                    q
+                } else {
+                    RetrofitClient.gson.fromJson(json, QuoteDetails::class.java)
+                }
+            } catch (e: Exception) {
+                RetrofitClient.gson.fromJson(json, QuoteDetails::class.java)
+            }
+        }
     }
 }
 
@@ -805,14 +915,28 @@ data class LeadDetailsResponse(
     @SerializedName("customer_licenses") val customerLicenses: List<CustomerLicense> = emptyList(),
     @SerializedName("main_licenses") val mainLicenses: List<CustomerLicense> = emptyList(),
     @SerializedName("licences_grouped") val licencesGrouped: List<LicenceGroup> = emptyList(),
-    val quotes: List<QuoteDetails> = emptyList(),
-    val proformas: List<ProformaInvoice> = emptyList(),
+    @SerializedName("quotes", alternate = ["quotations", "quote_list"]) val quotes: List<QuoteDetails> = emptyList(),
+    @SerializedName("proformas", alternate = ["proforma_invoices", "proforma", "proforma_list"]) val proformas: List<ProformaInvoice> = emptyList(),
     val invoices: List<Invoice> = emptyList(),
     val payments: List<Payment> = emptyList(),
-    val works: List<Work> = emptyList(),
+    @SerializedName("works", alternate = ["work_list", "active_works", "work", "projects", "lead_works"]) val works: List<Work> = emptyList(),
     val stats: Map<String, Any>? = null,
     val employees: List<Employee> = emptyList()
 ) {
+    fun hasApprovedQuote(): Boolean {
+        return quotes.any { q ->
+            val st = q.status?.lowercase()?.trim() ?: ""
+            st == "approved" || st == "accepted" || st == "won"
+        }
+    }
+
+    fun hasApprovedProforma(): Boolean {
+        return proformas.any { pf ->
+            val st = pf.status?.lowercase()?.trim() ?: ""
+            st == "approved" || st == "accepted" || st == "won"
+        }
+    }
+
     companion object {
         private val lenientGson = RetrofitClient.gson
 
@@ -827,7 +951,6 @@ data class LeadDetailsResponse(
 
                 if (element.isJsonObject) {
                     val obj = element.asJsonObject
-                    // Support { "status": "success", "data": { ... } } or just { ... }
                     val dataPart = if (obj.has("data") && obj.get("data").isJsonObject) {
                         obj.get("data").asJsonObject
                     } else {
@@ -836,16 +959,56 @@ data class LeadDetailsResponse(
                     
                     val parsed = lenientGson.fromJson(dataPart, LeadDetailsResponse::class.java)
                     
-                    // Ensure status/message are picked up from the root if not in the data part
                     val rootStatus = obj.get("status")?.takeIf { it.isJsonPrimitive }?.asString
                     val rootMessage = obj.get("message")?.takeIf { it.isJsonPrimitive }?.asString
                     
+                    var finalProformas = parsed.proformas
+                    if (finalProformas.isEmpty()) {
+                        val pfArr = if (dataPart.has("proforma_invoices") && dataPart.get("proforma_invoices").isJsonArray) dataPart.getAsJsonArray("proforma_invoices")
+                            else if (dataPart.has("proformas") && dataPart.get("proformas").isJsonArray) dataPart.getAsJsonArray("proformas")
+                            else null
+                        if (pfArr != null) {
+                            try {
+                                finalProformas = lenientGson.fromJson(pfArr, object : com.google.gson.reflect.TypeToken<List<ProformaInvoice>>() {}.type) ?: emptyList()
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    var finalQuotes = parsed.quotes
+                    if (finalQuotes.isEmpty()) {
+                        val qArr = if (dataPart.has("quotations") && dataPart.get("quotations").isJsonArray) dataPart.getAsJsonArray("quotations")
+                            else if (dataPart.has("quotes") && dataPart.get("quotes").isJsonArray) dataPart.getAsJsonArray("quotes")
+                            else null
+                        if (qArr != null) {
+                            try {
+                                finalQuotes = lenientGson.fromJson(qArr, object : com.google.gson.reflect.TypeToken<List<QuoteDetails>>() {}.type) ?: emptyList()
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    var finalWorks = parsed.works
+                    if (finalWorks.isEmpty()) {
+                        val wArr = if (dataPart.has("works") && dataPart.get("works").isJsonArray) dataPart.getAsJsonArray("works")
+                            else if (dataPart.has("active_works") && dataPart.get("active_works").isJsonArray) dataPart.getAsJsonArray("active_works")
+                            else if (dataPart.has("work_list") && dataPart.get("work_list").isJsonArray) dataPart.getAsJsonArray("work_list")
+                            else if (dataPart.has("projects") && dataPart.get("projects").isJsonArray) dataPart.getAsJsonArray("projects")
+                            else null
+                        if (wArr != null) {
+                            try {
+                                finalWorks = lenientGson.fromJson(wArr, object : TypeToken<List<Work>>() {}.type) ?: emptyList()
+                            } catch (_: Exception) {}
+                        }
+                    }
+
                     parsed.copy(
                         status = if (parsed.status.isNullOrEmpty()) rootStatus else parsed.status,
-                        message = if (parsed.message.isNullOrEmpty()) rootMessage else parsed.message
+                        message = if (parsed.message.isNullOrEmpty()) rootMessage else parsed.message,
+                        proformas = finalProformas,
+                        quotes = finalQuotes,
+                        works = finalWorks
                     )
                 } else {
-                    LeadDetailsResponse(status = "error", message = "Invalid JSON structure: ${json.toString().take(50)}")
+                    LeadDetailsResponse(status = "error", message = "Not a JSON object")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GSON", "LeadDetailsResponse parse error: ${e.message}", e)

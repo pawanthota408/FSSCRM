@@ -196,7 +196,7 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
 
     LaunchedEffect(leadId) {
         refreshLead()
-        
+
         // Auto-open modal if requested via deep link
         val args = navController.currentBackStackEntry?.arguments
         if (args?.getString("open_quotation") == "true") {
@@ -291,21 +291,63 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
                                 }
                             }
                         }
-                        Spacer(Modifier.height(20.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CRMActionButton(Icons.Default.Call, "Call", Color(0xFF3B82F6)) {
+
+                        // Lead Requirement Card above Action Buttons
+                        val reqSummary = details?.lead?.formattedRequirementSummary ?: details?.lead?.service
+                        if (!reqSummary.isNullOrBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Surface(
+                                color = Color(0xFFEFF6FF),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Assignment,
+                                        contentDescription = null,
+                                        tint = Color(0xFF1D4ED8),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Requirement: ",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF1E40AF)
+                                    )
+                                    Text(
+                                        text = reqSummary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF1E293B)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CRMActionButton(icon = Icons.Default.Call, label = "Call", color = Color(0xFF3B82F6)) {
                                 val phone = details?.lead?.phone
                                 if (!phone.isNullOrBlank()) {
                                     context.startActivity(Intent(Intent.ACTION_DIAL, "tel:$phone".toUri()))
                                 }
                             }
-                            CRMActionButton(Icons.AutoMirrored.Filled.Chat, "WhatsApp", Color(0xFF10B981)) {
+                            CRMActionButton(
+                                painter = androidx.compose.ui.res.painterResource(id = com.fsscrm.R.drawable.ic_whatsapp),
+                                label = "WhatsApp",
+                                color = Color(0xFF25D366)
+                            ) {
                                 val clean = details?.lead?.phone?.replace(Regex("[^0-9]"), "")
                                 if (!clean.isNullOrBlank()) {
                                     context.startActivity(Intent(Intent.ACTION_VIEW, "https://wa.me/$clean".toUri()))
                                 }
                             }
-                            CRMActionButton(Icons.Default.PersonAdd, "Assign", Color(0xFF6366F1)) {
+                            CRMActionButton(icon = Icons.Default.PersonAdd, label = "Assign", color = Color(0xFF6366F1)) {
                                 showAssignmentDialog = true
                             }
                         }
@@ -524,7 +566,15 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
                                                     Text("New Quote")
                                                 }
                                                 TextButton(
-                                                    onClick = { showProposalFullScreen = true },
+                                                    onClick = {
+                                                        if (details?.hasApprovedQuote() == true) {
+                                                            showProposalFullScreen = true
+                                                        } else {
+                                                            scope.launch {
+                                                                snackbarHostState.showSnackbar("Cannot create Proforma Invoice: Quotation must be approved by Admin first.")
+                                                            }
+                                                        }
+                                                    },
                                                     Modifier.weight(1f)
                                                 ) {
                                                     Text("New Proforma")
@@ -557,7 +607,15 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
                                 if (details?.lead?.status?.lowercase() != "won") {
                                     item {
                                         Button(
-                                            onClick = { showWonFullScreen = true },
+                                            onClick = {
+                                                if (details?.hasApprovedProforma() == true) {
+                                                    showWonFullScreen = true
+                                                } else {
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar("Cannot Mark as Won / Create Work: Proforma Invoice must be approved by Admin first.")
+                                                    }
+                                                }
+                                            },
                                             Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
                                             shape = RoundedCornerShape(8.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
@@ -640,7 +698,24 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
                 when (status) {
                     "Follow Up", "Call Back Later" -> showFollowUpFullScreen = true
                     "Quotation" -> showQuotationFullScreen = true
-                    "Won" -> showWonFullScreen = true
+                    "Proposal", "Proforma Invoice" -> {
+                        if (details?.hasApprovedQuote() == true) {
+                            showProposalFullScreen = true
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Cannot create Proforma Invoice: Quotation must be approved by Admin first.")
+                            }
+                        }
+                    }
+                    "Won" -> {
+                        if (details?.hasApprovedProforma() == true) {
+                            showWonFullScreen = true
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Cannot Mark as Won / Create Work: Proforma Invoice must be approved by Admin first.")
+                            }
+                        }
+                    }
                     else -> {
                         scope.launch {
                             if (RetrofitClient.apiService.updateLeadStatus(
@@ -847,21 +922,39 @@ fun AdminLeadDetailsScreen(userId: Int, leadId: Int, navController: NavControlle
 
 @Composable
 fun RowScope.CRMActionButton(
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    painter: androidx.compose.ui.graphics.painter.Painter? = null,
     label: String,
     color: Color,
     onClick: () -> Unit
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier.weight(1f).height(48.dp),
+        modifier = Modifier.weight(1f).height(46.dp),
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-        contentPadding = PaddingValues(0.dp)
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(label, color = Color(0xFF1E293B), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+            } else if (painter != null) {
+                Icon(painter, contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = label,
+                color = Color(0xFF1E293B),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -1145,9 +1238,23 @@ fun QuoteItem(quote: QuoteDetails, onClick: () -> Unit) {
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(quote.quote_no, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
-            Text("₹${quote.total}", fontWeight = FontWeight.Bold)
+        Row(
+            Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(quote.quote_no.ifBlank { "Q-${quote.id}" }, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                    Surface(color = Color(0xFFFEF3C7), shape = RoundedCornerShape(4.dp)) {
+                        Text("Quotation", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, color = Color(0xFF92400E), fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (!quote.created_at.isNullOrBlank()) {
+                    Text(quote.created_at.take(10), fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+            Text("₹${quote.total}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
         }
     }
 }
@@ -1160,9 +1267,23 @@ fun ProformaItem(pf: ProformaInvoice, onClick: () -> Unit) {
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(pf.proforma_no, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
-            Text("₹${pf.total}", fontWeight = FontWeight.Bold)
+        Row(
+            Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(pf.proforma_no.ifBlank { "PF-${pf.id}" }, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                    Surface(color = Color(0xFFEFF6FF), shape = RoundedCornerShape(4.dp)) {
+                        Text("Proforma Invoice", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, color = Color(0xFF1E40AF), fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (!pf.created_at.isNullOrBlank()) {
+                    Text(pf.created_at.take(10), fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+            Text("₹${pf.total}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A))
         }
     }
 }
@@ -1175,10 +1296,15 @@ fun WorkItem(work: Work, onClick: () -> Unit) {
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
-        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(work.work_name, fontWeight = FontWeight.Bold)
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(work.work_name.ifBlank { work.description?.take(30) ?: "Project #${work.id}" }, fontWeight = FontWeight.Bold)
+                if (!work.start_date.isNullOrBlank()) {
+                    Text(work.start_date, fontSize = 11.sp, color = Color.Gray)
+                }
+            }
             Surface(color = Color(0xFFF1F5F9), shape = RoundedCornerShape(4.dp)) {
-                Text(work.status.uppercase(), Modifier.padding(4.dp, 2.dp), fontSize = 9.sp)
+                Text(work.status.uppercase(), Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -17,16 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -52,12 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,13 +84,14 @@ import com.fsscrm.ui.theme.PrimaryIndigo
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
+
+enum class DocumentType {
+    QUOTATION,
+    PROFORMA
+}
 
 private fun parsePrice(value: String?): Double {
     if (value == null) return 0.0
@@ -172,12 +166,13 @@ fun TotalRow(label: String, value: String, isBold: Boolean = false, highlight: B
 }
 
 // ============================================================
-// MAIN EDIT FORM (matches second screenshot exactly)
+// MAIN EDIT FORM (with DocumentType support)
 // ============================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuoteDocumentComponent(
+    docType: DocumentType,
     title: String,
     lead: Lead,
     products: List<Product> = emptyList(),
@@ -193,8 +188,37 @@ fun QuoteDocumentComponent(
     onSettingsClick: () -> Unit,
     onConfirm: (List<QuoteRequirement>, String, String, String, String, String, String, String, String) -> Unit
 ) {
-    val isQuotation = title.lowercase().contains("quote") && !title.lowercase().contains("proforma")
-    
+    val isQuotation = docType == DocumentType.QUOTATION
+
+    // Dynamic styling based on document type
+    val primaryColor = if (isQuotation) Color(0xFFD97706) else Color(0xFF2563EB)
+    val cardBgColor = if (isQuotation) Color(0xFFFFFBEB) else Color(0xFFEFF6FF)
+    val cardBorderColor = if (isQuotation) Color(0xFFFCD34D) else Color(0xFF93C5FD)
+    val headerTextColor = if (isQuotation) Color(0xFF92400E) else Color(0xFF1D4ED8)
+    val headerTitle = if (isQuotation) "📄 Quotation" else "📋 Proforma Invoice"
+    val headerSubtitle = if (isQuotation)
+        "Add line items based on the service required by the customer"
+    else
+        "Prefills from quotation — sent to Admin for approval"
+    val bottomButtonText = if (isQuotation)
+        "Create Quotation (sent to Admin for approval)"
+    else
+        "Create Proforma Invoice"
+    val alertNote = if (isQuotation)
+        " This quotation will be sent to Admin for approval. You will be notified once approved/rejected."
+    else
+        " Proforma invoice will be sent to Admin for approval. You will be notified once approved/rejected."
+    val autoFillBannerText = if (isQuotation) {
+        "Auto-filled from service: ${lead.service ?: "N/A"} — enter the cost on the line above, then submit for admin approval."
+    } else {
+        if (initialQuote != null && !initialQuote.quote_no.isNullOrBlank()) {
+            "Auto-filled from quotation #${initialQuote.quote_no} — review or edit items, then submit for admin approval."
+        } else {
+            "Auto-filled from service: ${lead.service ?: "N/A"} — enter the cost on the line above, then submit for admin approval."
+        }
+    }
+
+    // State variables
     var clientName by remember { mutableStateOf(initialQuote?.customer_name?.ifBlank { null } ?: lead.name ?: "") }
     var clientEmail by remember { mutableStateOf(initialQuote?.customer_email?.ifBlank { null } ?: lead.email ?: "") }
     var clientPhone by remember { mutableStateOf(initialQuote?.customer_phone?.ifBlank { null } ?: lead.phone ?: "") }
@@ -203,18 +227,32 @@ fun QuoteDocumentComponent(
 
     val items = remember { mutableStateListOf<QuoteRequirement>() }
 
-    // Financial calculations
     var discountInput by remember { mutableStateOf(initialQuote?.discount ?: initialDiscount) }
     var otherTaxInput by remember { mutableStateOf("0.00") }
     var validDaysInput by remember { mutableStateOf("15") }
     var remarksInput by remember { mutableStateOf(initialQuote?.admin_notes ?: initialComments) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
-    // Seed or initialQuote/initialItems sync
+    // Seed initial items
     LaunchedEffect(initialQuote, initialItems) {
-        val reqs = initialQuote?.requirements?.takeIf { it.isNotEmpty() } ?: initialItems
+        val reqs = initialQuote?.allRequirements?.takeIf { it.isNotEmpty() }
+            ?: initialQuote?.requirements?.takeIf { it.isNotEmpty() }
+            ?: initialItems
+
+        val initSubtotal = (parsePrice(initialQuote?.total) - parsePrice(initialQuote?.tax) + parsePrice(initialQuote?.discount)).coerceAtLeast(0.0)
+
         if (reqs.isNotEmpty()) {
             items.clear()
-            items.addAll(reqs)
+            val adjustedReqs = reqs.map { r ->
+                if (r.effectivePrice <= 0.0 && reqs.size == 1 && initSubtotal > 0.0) {
+                    r.copy(cost = "%.2f".format(initSubtotal))
+                } else if (r.effectivePrice <= 0.0 && parsePrice(r.cost) <= 0.0 && r.effectiveAmount > 0.0) {
+                    r.copy(cost = "%.2f".format(r.effectivePrice))
+                } else {
+                    r
+                }
+            }
+            items.addAll(adjustedReqs)
         } else if (items.isEmpty() && !isReadOnly) {
             val svc = lead.service?.trim() ?: ""
             if (svc.isNotEmpty()) {
@@ -270,70 +308,77 @@ fun QuoteDocumentComponent(
     val otherTaxVal = parsePrice(otherTaxInput)
     val grandTotal = (subtotal + tax + otherTaxVal - discVal).coerceAtLeast(0.0)
 
-    val cardBgColor = if (isQuotation) Color(0xFFFFFBEB) else Color(0xFFEFF6FF)
-    val cardBorderColor = if (isQuotation) Color(0xFFFCD34D) else Color(0xFF93C5FD)
-    val headerTextColor = if (isQuotation) Color(0xFF92400E) else Color(0xFF1D4ED8)
-
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color.White
         ) {
-            Scaffold(
-                topBar = {
-                    UniversalHeader(
-                        title = if (isQuotation) "Quotation" else "Proforma Invoice",
-                        onBackClick = onDismiss,
-                        actions = {
-                            IconButton(onClick = onSettingsClick) {
-                                Icon(Icons.Default.Settings, "Settings", tint = Color.White)
+            Box(modifier = Modifier.fillMaxSize()) {
+                Scaffold(
+                    topBar = {
+                        UniversalHeader(
+                            title = headerTitle,
+                            onBackClick = { if (!isSubmitting) onDismiss() },
+                            actions = {
+                                IconButton(onClick = { if (!isSubmitting) onSettingsClick() }) {
+                                    Icon(Icons.Default.Settings, "Settings", tint = Color.White)
+                                }
                             }
-                        }
-                    )
-                },
-                bottomBar = {
-                    if (!isReadOnly) {
-                        Surface(
-                            shadowElevation = 8.dp,
-                            color = Color.White,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = {
-                                    onConfirm(
-                                        items.toList(),
-                                        discountInput,
-                                        "₹",
-                                        "Draft",
-                                        remarksInput,
-                                        title,
-                                        clientName,
-                                        clientPhone,
-                                        clientCompany
-                                    )
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isQuotation) Color(0xFFD97706) else Color(0xFF2563EB)
-                                )
+                        )
+                    },
+                    bottomBar = {
+                        if (!isReadOnly) {
+                            Surface(
+                                shadowElevation = 8.dp,
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    if (isQuotation) "Create Quotation (sent to Admin for approval)"
-                                    else "Create Proforma Invoice",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
+                                Button(
+                                    onClick = {
+                                        if (isSubmitting) return@Button
+                                        isSubmitting = true
+                                        onConfirm(
+                                            items.toList(),
+                                            discountInput,
+                                            "₹",
+                                            "Draft",
+                                            remarksInput,
+                                            title,
+                                            clientName,
+                                            clientPhone,
+                                            clientCompany
+                                        )
+                                    },
+                                    enabled = !isSubmitting,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = primaryColor
+                                    )
+                                ) {
+                                    if (isSubmitting) {
+                                        CircularProgressIndicator(
+                                            color = Color.White,
+                                            modifier = Modifier.size(22.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text(
+                                            bottomButtonText,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                    }
+                                }
                             }
                         }
-                    }
-                },
+                    },
                 containerColor = Color.White
             ) { padding ->
                 Column(
@@ -354,16 +399,14 @@ fun QuoteDocumentComponent(
                         Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    if (isQuotation) "📄 Create Quotation (sent to Admin for approval)"
-                                    else "📋 Proforma Invoice (Proposal)",
+                                    headerTitle,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
                                     color = headerTextColor
                                 )
                             }
                             Text(
-                                if (isQuotation) "Add line items based on the service required by the customer"
-                                else "Prefills from quotation — sent to Admin for approval",
+                                headerSubtitle,
                                 fontSize = 12.sp,
                                 color = Color.Gray,
                                 modifier = Modifier.padding(top = 2.dp)
@@ -437,9 +480,7 @@ fun QuoteDocumentComponent(
                         border = BorderStroke(1.dp, if (isQuotation) Color(0xFFFCD34D) else Color(0xFF93C5FD))
                     ) {
                         Text(
-                            if (isQuotation) "Auto-filled from service: $serviceProject — enter the cost on the line above, then submit for admin approval."
-                            else if (initialQuote != null && !initialQuote.quote_no.isNullOrBlank()) "Auto-filled from quotation #${initialQuote.quote_no} — review or edit items, then submit for admin approval."
-                            else "Auto-filled from service: $serviceProject — enter the cost on the line above, then submit for admin approval.",
+                            autoFillBannerText,
                             fontSize = 12.sp,
                             color = if (isQuotation) Color(0xFF92400E) else Color(0xFF1E40AF),
                             modifier = Modifier.padding(10.dp)
@@ -503,8 +544,8 @@ fun QuoteDocumentComponent(
                     if (!isReadOnly) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
-                            border = BorderStroke(1.dp, Color(0xFFFCD34D)),
+                            colors = CardDefaults.cardColors(containerColor = if (isQuotation) Color(0xFFFFFBEB) else Color(0xFFEFF6FF)),
+                            border = BorderStroke(1.dp, if (isQuotation) Color(0xFFFCD34D) else Color(0xFF93C5FD)),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Column(
@@ -515,7 +556,7 @@ fun QuoteDocumentComponent(
                                     "📦 Select product/service — cost entered by you",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    color = Color(0xFF92400E)
+                                    color = if (isQuotation) Color(0xFF92400E) else Color(0xFF1E40AF)
                                 )
 
                                 Box(modifier = Modifier.fillMaxWidth()) {
@@ -573,8 +614,8 @@ fun QuoteDocumentComponent(
                                                         p.name.contains("silver", ignoreCase = true) ||
                                                         p.name.contains("server", ignoreCase = true) ||
                                                         p.name.contains("prime", ignoreCase = true)) &&
-                                                        !p.name.contains("cloud", ignoreCase = true) &&
-                                                        !p.name.contains("amc", ignoreCase = true)
+                                                !p.name.contains("cloud", ignoreCase = true) &&
+                                                !p.name.contains("amc", ignoreCase = true)
                                     } ?: false
 
                                     if (!isMainSelected) {
@@ -595,8 +636,8 @@ fun QuoteDocumentComponent(
                                                     p.name.contains("silver", ignoreCase = true) ||
                                                     p.name.contains("server", ignoreCase = true) ||
                                                     p.name.contains("prime", ignoreCase = true)) &&
-                                                    !p.name.contains("cloud", ignoreCase = true) &&
-                                                    !p.name.contains("amc", ignoreCase = true)
+                                            !p.name.contains("cloud", ignoreCase = true) &&
+                                            !p.name.contains("amc", ignoreCase = true)
                                 } ?: false
 
                                 if (!isMainSel && selectedProduct != null) {
@@ -640,7 +681,7 @@ fun QuoteDocumentComponent(
                                         productExpiryInput = ""
                                     },
                                     modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text("+ Add Product/Service", color = Color.White, fontWeight = FontWeight.Bold)
@@ -699,7 +740,7 @@ fun QuoteDocumentComponent(
                                 Text(
                                     "Tally Gold/Silver/Server -> licence after work complete. Others -> serial required now.",
                                     fontSize = 11.sp,
-                                    color = Color(0xFF78350F)
+                                    color = if (isQuotation) Color(0xFF78350F) else Color(0xFF1E40AF)
                                 )
                             }
                         }
@@ -796,8 +837,7 @@ fun QuoteDocumentComponent(
                         border = BorderStroke(1.dp, cardBorderColor)
                     ) {
                         Text(
-                            if (isQuotation) " This quotation will be sent to Admin for approval. You will be notified once approved/rejected."
-                            else " Proforma invoice will be sent to Admin for approval. You will be notified once approved/rejected.",
+                            alertNote,
                             fontSize = 12.sp,
                             color = headerTextColor,
                             fontWeight = FontWeight.Medium,
@@ -820,12 +860,54 @@ fun QuoteDocumentComponent(
                     Spacer(Modifier.height(40.dp))
                 }
             }
+
+            if (isSubmitting) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color.Black.copy(alpha = 0.4f)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = primaryColor,
+                                    modifier = Modifier.size(36.dp),
+                                    strokeWidth = 3.dp
+                                )
+                                Text(
+                                    text = if (isQuotation) "Creating Quotation..." else "Creating Proforma Invoice...",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF1E293B)
+                                )
+                                Text(
+                                    text = "Please wait, processing request...",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
+}
 
 // ============================================================
-// FORMAL PREVIEW SCREEN (matches first screenshot exactly)
+// FORMAL PREVIEW SCREEN
 // ============================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -848,7 +930,10 @@ fun QuotePreviewScreen(
     onSaveAndFinish: () -> Unit,
     onSaveAndSend: () -> Unit
 ) {
-    val subtotal = items.sumOf { (it.cost.toDoubleOrNull() ?: 0.0) * it.quantityInt }
+    val itemSubtotal = items.sumOf { it.effectiveAmount }
+    val derivedSubtotal = if (itemSubtotal > 0.0) itemSubtotal 
+        else (grandTotal - tax + discount).coerceAtLeast(0.0)
+    val subtotal = if (derivedSubtotal > 0.0) derivedSubtotal else items.sumOf { parsePrice(it.cost) * it.quantityInt }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -919,7 +1004,6 @@ fun QuotePreviewScreen(
                         .padding(padding)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // White document card
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -929,8 +1013,6 @@ fun QuotePreviewScreen(
                         shadowElevation = 1.dp
                     ) {
                         Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-
-                            // Company header + logo
                             Row(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -948,7 +1030,6 @@ fun QuotePreviewScreen(
                                     if (settings.companyPhone.isNotEmpty()) Text("Tel: ${settings.companyPhone}", fontSize = 11.sp, color = Color.Gray)
                                 }
 
-                                // Logo
                                 Box(
                                     Modifier
                                         .size(64.dp)
@@ -977,7 +1058,6 @@ fun QuotePreviewScreen(
 
                             Spacer(Modifier.height(28.dp))
 
-                            // Gray title bar
                             Box(
                                 Modifier
                                     .fillMaxWidth()
@@ -995,13 +1075,11 @@ fun QuotePreviewScreen(
 
                             Spacer(Modifier.height(20.dp))
 
-                            // Client
                             Text(
                                 "To: $clientName",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
-                            
                             if (clientCompany.isNotBlank()) {
                                 Text(
                                     clientCompany,
@@ -1009,7 +1087,6 @@ fun QuotePreviewScreen(
                                     color = Color.DarkGray
                                 )
                             }
-
                             if (clientPhone.isNotEmpty()) {
                                 Text(
                                     "Phone: $clientPhone",
@@ -1020,7 +1097,6 @@ fun QuotePreviewScreen(
 
                             Spacer(Modifier.height(20.dp))
 
-                            // Table header
                             Row(Modifier.fillMaxWidth()) {
                                 Text("#", modifier = Modifier.width(28.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                                 Text("Description", modifier = Modifier.weight(1.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
@@ -1030,9 +1106,14 @@ fun QuotePreviewScreen(
                             }
                             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = Color(0xFFF3F4F6))
 
-                            // Line items
                             items.forEachIndexed { index, item ->
-                                val amount = parsePrice(item.cost) * item.quantityInt
+                                val unitPrice = if (item.effectivePrice > 0.0) item.effectivePrice 
+                                    else if (items.size == 1 && subtotal > 0.0) subtotal 
+                                    else parsePrice(item.cost)
+                                val lineAmount = if (item.effectiveAmount > 0.0) item.effectiveAmount 
+                                    else if (unitPrice > 0.0) unitPrice * item.quantityInt 
+                                    else parsePrice(item.cost) * item.quantityInt
+
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -1050,15 +1131,14 @@ fun QuotePreviewScreen(
                                         }
                                     }
                                     Text(item.quantity, modifier = Modifier.width(36.dp), fontSize = 11.sp, textAlign = TextAlign.Center)
-                                    Text(String.format(Locale.US, "%,.2f", parsePrice(item.cost)), modifier = Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.End)
-                                    Text(String.format(Locale.US, "%,.2f", amount), modifier = Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.End, fontWeight = FontWeight.Bold)
+                                    Text(String.format(Locale.US, "%,.2f", unitPrice), modifier = Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.End)
+                                    Text(String.format(Locale.US, "%,.2f", lineAmount), modifier = Modifier.weight(1f), fontSize = 11.sp, textAlign = TextAlign.End, fontWeight = FontWeight.Bold)
                                 }
                                 HorizontalDivider(color = Color(0xFFF9FAFB))
                             }
 
                             Spacer(Modifier.height(12.dp))
 
-                            // Totals helper
                             @Composable
                             fun TotalLine(label: String, value: Double, highlight: Boolean = false) {
                                 Row(
@@ -1117,7 +1197,7 @@ fun QuotePreviewScreen(
 }
 
 // ============================================================
-// ENTRY POINTS (Quotation / Proforma / Details)
+// ENTRY POINTS
 // ============================================================
 
 @Composable
@@ -1154,12 +1234,13 @@ fun QuotationFullScreen(
     var settings by remember { mutableStateOf(QuoteSettingsManager.loadSettings(context)) }
 
     if (showSettings) {
-        QuoteSettingsScreen { 
+        QuoteSettingsScreen {
             settings = QuoteSettingsManager.loadSettings(context)
-            showSettings = false 
+            showSettings = false
         }
     } else {
         QuoteDocumentComponent(
+            docType = DocumentType.QUOTATION,
             title = "Quotation",
             lead = lead,
             products = products,
@@ -1199,9 +1280,9 @@ fun ProposalFullScreen(
     var showSettings by remember { mutableStateOf(false) }
 
     var licenses by remember { mutableStateOf<List<com.fsscrm.network.CustomerLicense>>(emptyList()) }
-    var fetchedQuote by remember { mutableStateOf<QuoteDetails?>(null) }
-    
-    LaunchedEffect(lead.id) {
+    var fetchedQuote by remember { mutableStateOf<QuoteDetails?>(latestQuote) }
+
+    LaunchedEffect(lead.id, latestQuote?.id) {
         if (lead.id > 0) {
             try {
                 val uId = currentUser?.id ?: 0
@@ -1211,17 +1292,33 @@ fun ProposalFullScreen(
                     RetrofitClient.apiService.getAdminLeadDetails(mapOf("lead_id" to lead.id))
                 }
                 val finalResp = if (resp.isSuccessful) resp else RetrofitClient.apiService.getAdminLeadDetails(mapOf("lead_id" to lead.id))
+                var targetQuoteId: Int? = latestQuote?.id?.takeIf { it > 0 }
+
                 if (finalResp.isSuccessful) {
                     finalResp.toLenientJson()?.let {
                         val details = com.fsscrm.network.LeadDetailsResponse.fromJson(it)
                         licenses = details.customerLicenses
-                        if (fetchedQuote == null) {
-                            fetchedQuote = details.quotes.lastOrNull { q -> q.requirements?.isNotEmpty() == true || !q.customer_name.isNullOrBlank() }
-                                ?: details.quotes.lastOrNull()
+                        if (targetQuoteId == null || targetQuoteId == 0) {
+                            targetQuoteId = details.quotes.lastOrNull { q -> q.id > 0 }?.id
+                                ?: details.quotes.firstOrNull { q -> q.id > 0 }?.id
                         }
                     }
                 }
-            } catch (_: Exception) {}
+
+                if (targetQuoteId != null && targetQuoteId!! > 0) {
+                    val qResp = RetrofitClient.apiService.getQuoteDetails(mapOf("quote_id" to targetQuoteId!!))
+                    if (qResp.isSuccessful) {
+                        qResp.toLenientJson()?.let { qJson ->
+                            val fullQuote = QuoteDetails.fromJson(qJson)
+                            if (!fullQuote.requirements.isNullOrEmpty() || !fullQuote.customer_name.isNullOrBlank()) {
+                                fetchedQuote = fullQuote
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ProposalFullScreen", "Error fetching quote for proforma: ${e.message}")
+            }
         }
     }
 
@@ -1229,13 +1326,14 @@ fun ProposalFullScreen(
     var settings by remember { mutableStateOf(QuoteSettingsManager.loadSettings(context)) }
 
     if (showSettings) {
-        QuoteSettingsScreen { 
+        QuoteSettingsScreen {
             settings = QuoteSettingsManager.loadSettings(context)
-            showSettings = false 
+            showSettings = false
         }
     } else {
-        val activeQuote = latestQuote ?: fetchedQuote
+        val activeQuote = fetchedQuote ?: latestQuote
         QuoteDocumentComponent(
+            docType = DocumentType.PROFORMA,
             title = "Proforma Invoice",
             lead = lead,
             products = products,
@@ -1272,14 +1370,30 @@ fun ProposalFullScreen(
 fun QuoteDetailFullScreen(quote: QuoteDetails, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val settings = QuoteSettingsManager.loadSettings(context)
-    
+    val qNo = quote.quote_no.ifBlank { "Q-${quote.id}" }
+    val displayTitle = if (qNo.startsWith("Quotation", ignoreCase = true)) qNo else "Quotation #$qNo"
+
+    val rawItems = quote.allRequirements.ifEmpty { quote.requirements ?: emptyList() }
+    val displaySubtotal = (parsePrice(quote.total) - parsePrice(quote.tax) + parsePrice(quote.discount)).coerceAtLeast(0.0)
+    val adjustedItems = if (rawItems.isNotEmpty()) {
+        rawItems.map { r ->
+            if (r.effectivePrice <= 0.0 && rawItems.size == 1 && displaySubtotal > 0.0) {
+                r.copy(cost = "%.2f".format(displaySubtotal))
+            } else if (r.effectivePrice <= 0.0 && parsePrice(r.cost) <= 0.0 && r.effectiveAmount > 0.0) {
+                r.copy(cost = "%.2f".format(r.effectivePrice))
+            } else {
+                r
+            }
+        }
+    } else emptyList()
+
     QuotePreviewScreen(
-        title = "Quote #${quote.quote_no}",
+        title = displayTitle,
         settings = settings,
         clientName = quote.customer_name,
         clientPhone = quote.customer_phone ?: "",
         clientCompany = quote.customer_company ?: "",
-        items = quote.requirements ?: emptyList(),
+        items = adjustedItems,
         discount = parsePrice(quote.discount),
         tax = parsePrice(quote.tax),
         grandTotal = parsePrice(quote.total),
@@ -1298,19 +1412,43 @@ fun QuoteDetailFullScreen(quote: QuoteDetails, onDismiss: () -> Unit) {
 fun ProformaDetailFullScreen(pf: ProformaInvoice, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val settings = QuoteSettingsManager.loadSettings(context)
-    
+    val pfNo = pf.proforma_no.ifBlank { "PF-${pf.id}" }
+    val displayTitle = if (pfNo.startsWith("Proforma", ignoreCase = true)) pfNo else "Proforma Invoice #$pfNo"
+
+    val rawItems = pf.items_parsed
+    val displaySubtotal = (parsePrice(pf.total) - parsePrice(pf.tax) + parsePrice(pf.discount)).coerceAtLeast(0.0)
+    val adjustedItems = if (rawItems.isNotEmpty()) {
+        rawItems.map { r ->
+            if (r.effectivePrice <= 0.0 && rawItems.size == 1 && displaySubtotal > 0.0) {
+                r.copy(cost = "%.2f".format(displaySubtotal))
+            } else if (r.effectivePrice <= 0.0 && parsePrice(r.cost) <= 0.0 && r.effectiveAmount > 0.0) {
+                r.copy(cost = "%.2f".format(r.effectivePrice))
+            } else {
+                r
+            }
+        }
+    } else if (!pf.service.isNullOrBlank()) {
+        listOf(
+            QuoteRequirement(
+                requirement = pf.service!!,
+                cost = "%.2f".format(displaySubtotal),
+                quantity = "1"
+            )
+        )
+    } else emptyList()
+
     QuotePreviewScreen(
-        title = pf.proforma_no,
+        title = displayTitle,
         settings = settings,
         clientName = pf.customer_name,
         clientPhone = pf.customer_phone ?: "",
         clientCompany = pf.customer_company ?: "",
-        items = pf.items_parsed,
+        items = adjustedItems,
         discount = parsePrice(pf.discount),
         tax = parsePrice(pf.tax),
         grandTotal = parsePrice(pf.total),
         date = pf.created_at?.take(11) ?: "",
-        validUntil = "", // No valid until in model?
+        validUntil = "",
         isViewOnly = true,
         onDismiss = onDismiss,
         onSettingsClick = {},
@@ -1320,7 +1458,7 @@ fun ProformaDetailFullScreen(pf: ProformaInvoice, onDismiss: () -> Unit) {
 }
 
 // ============================================================
-// OTHER FULL SCREEN MODALS
+// OTHER FULL SCREEN MODALS (unchanged)
 // ============================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1373,42 +1511,105 @@ fun WonFullScreen(
     var name by remember { mutableStateOf(lead.name ?: "") }
     var amt by remember { mutableStateOf(latestProforma?.total ?: "") }
     var adv by remember { mutableStateOf("0") }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(
-            topBar = {
-                UniversalHeader(
-                    title = "Won Deal Setup",
-                    onBackClick = onDismiss,
-                    actions = {
-                        TextButton(onClick = {
-                            onConfirm(
-                                mapOf(
-                                    "company" to comp,
-                                    "customer_name" to name,
-                                    "total_amount" to amt,
-                                    "advance_received" to adv,
-                                    "work_name" to (lead.service ?: "New Project")
-                                )
-                            )
-                        }) {
-                            Text("CONFIRM", color = Color.White, fontWeight = FontWeight.Bold)
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = { if (!isSubmitting) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.White
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Scaffold(
+                    topBar = {
+                        UniversalHeader(
+                            title = "Won Deal Setup",
+                            onBackClick = { if (!isSubmitting) onDismiss() },
+                            actions = {
+                                TextButton(
+                                    onClick = {
+                                        if (isSubmitting) return@TextButton
+                                        isSubmitting = true
+                                        onConfirm(
+                                            mapOf(
+                                                "company" to comp,
+                                                "customer_name" to name,
+                                                "total_amount" to amt,
+                                                "advance_received" to adv,
+                                                "work_name" to (lead.service ?: "New Project")
+                                            )
+                                        )
+                                    },
+                                    enabled = !isSubmitting
+                                ) {
+                                    if (isSubmitting) {
+                                        CircularProgressIndicator(
+                                            color = Color.White,
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text("CONFIRM", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { p ->
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(p)
+                            .padding(24.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedTextField(comp, { comp = it }, Modifier.fillMaxWidth(), label = { Text("Final Company") }, readOnly = isSubmitting)
+                        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Final Customer Name") }, readOnly = isSubmitting)
+                        OutlinedTextField(amt, { amt = it }, Modifier.fillMaxWidth(), label = { Text("Deal Total") }, readOnly = isSubmitting)
+                        OutlinedTextField(adv, { adv = it }, Modifier.fillMaxWidth(), label = { Text("Advance Received") }, readOnly = isSubmitting)
+                    }
+                }
+
+                if (isSubmitting) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color.Black.copy(alpha = 0.4f)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF10B981),
+                                        modifier = Modifier.size(36.dp),
+                                        strokeWidth = 3.dp
+                                    )
+                                    Text(
+                                        text = "Setting Up Work...",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color(0xFF1E293B)
+                                    )
+                                    Text(
+                                        text = "Please wait, processing request...",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
                         }
                     }
-                )
-            }
-        ) { p ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(p)
-                    .padding(24.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                OutlinedTextField(comp, { comp = it }, Modifier.fillMaxWidth(), label = { Text("Final Company") })
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Final Customer Name") })
-                OutlinedTextField(amt, { amt = it }, Modifier.fillMaxWidth(), label = { Text("Deal Total") })
-                OutlinedTextField(adv, { adv = it }, Modifier.fillMaxWidth(), label = { Text("Advance Received") })
+                }
             }
         }
     }
@@ -1584,7 +1785,7 @@ fun LeadAssignmentDialog(
 ) {
     var employees by remember { mutableStateOf(initialEmployees ?: emptyList()) }
     var isLoading by remember { mutableStateOf(initialEmployees == null) }
-    var isAssigning by remember { mutableStateOf<Int?>(null) } // Store ID of employee being assigned
+    var isAssigning by remember { mutableStateOf<Int?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -1594,7 +1795,7 @@ fun LeadAssignmentDialog(
             isLoading = false
             return@LaunchedEffect
         }
-        
+
         try {
             val resp = RetrofitClient.apiService.getEmployees(mapOf("user_id" to userId))
             if (resp.isSuccessful) {
@@ -1627,14 +1828,12 @@ fun LeadAssignmentDialog(
                     }
                 } else {
                     val filtered = employees.filter {
-                        // Filter by Sales department AND search query
                         val inSales = it.department_name?.contains("Sales", ignoreCase = true) == true ||
-                                     it.role?.contains("Sales", ignoreCase = true) == true
-                        
+                                it.role?.contains("Sales", ignoreCase = true) == true
                         inSales && (
-                            (it.name ?: "").contains(searchQuery, ignoreCase = true) ||
-                            (it.role ?: "").contains(searchQuery, ignoreCase = true)
-                        )
+                                (it.name ?: "").contains(searchQuery, ignoreCase = true) ||
+                                        (it.role ?: "").contains(searchQuery, ignoreCase = true)
+                                )
                     }
 
                     if (filtered.isEmpty()) {
@@ -1707,10 +1906,10 @@ fun LeadAssignmentDialog(
                 }
             }
         },
-        confirmButton = { 
-            TextButton(onClick = onDismiss, enabled = isAssigning == null) { 
-                Text("Cancel") 
-            } 
+        confirmButton = {
+            TextButton(onClick = onDismiss, enabled = isAssigning == null) {
+                Text("Cancel")
+            }
         }
     )
 }
